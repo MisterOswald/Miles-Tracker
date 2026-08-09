@@ -426,9 +426,9 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
         if let lastDrivingIndex = points.lastIndex(where: { $0.timestamp <= cutoff }) {
             points = Array(points[...lastDrivingIndex])
         }
-        let endedAt = min(endedAt, points.last?.timestamp ?? endedAt)
+        let finalEndedAt = min(endedAt, points.last?.timestamp ?? endedAt)
         let miles = Geo.routeMiles(points: points)
-        let duration = endedAt.timeIntervalSince(state.startedAt)
+        let duration = finalEndedAt.timeIntervalSince(state.startedAt)
 
         guard points.count >= 2, miles >= minimumDriveMiles,
               duration >= minimumDriveDuration else {
@@ -458,7 +458,7 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
         let record = Drive(
             id: state.id,
             startedAt: state.startedAt,
-            endedAt: endedAt,
+            endedAt: finalEndedAt,
             distanceMiles: (miles * 10).rounded() / 10,
             startLatitude: start.latitude,
             startLongitude: start.longitude,
