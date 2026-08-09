@@ -65,6 +65,8 @@ struct SettingsView: View {
                 Text("Drives are recorded on-device and work fully offline. Sync is optional and additive.")
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("Settings")
         .onAppear {
             autoTracking = AppSettings.autoTrackingEnabled

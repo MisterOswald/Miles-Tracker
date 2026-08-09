@@ -11,6 +11,9 @@ enum Theme {
     static let unclassified = Color(red: 0xD9 / 255, green: 0x9A / 255, blue: 0x2B / 255) // #D99A2B
     static let unclassifiedSoft = Color(red: 0xF9 / 255, green: 0xEF / 255, blue: 0xDC / 255)
     static let danger = Color(red: 0xD0 / 255, green: 0x5A / 255, blue: 0x5A / 255)       // #D05A5A
+    static let bg = Color(red: 0xF6 / 255, green: 0xF6 / 255, blue: 0xFB / 255)           // #F6F6FB
+    static let card = Color.white
+    static let muted = Color(red: 0x7A / 255, green: 0x7A / 255, blue: 0x99 / 255)        // #7A7A99
 
     static func color(for category: DriveCategory) -> Color {
         switch category {

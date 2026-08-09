@@ -33,40 +33,25 @@ struct DriveListView: View {
                 ForEach(groupedByDay, id: \.day) { group in
                     Section {
                         ForEach(group.drives) { drive in
-                            NavigationLink(value: drive.id) {
-                                DriveRowView(drive: drive)
-                            }
-                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                                Button {
-                                    classify(drive, as: .business)
-                                } label: {
-                                    Label("Business", systemImage: "briefcase.fill")
-                                }
-                                .tint(Theme.business)
-                            }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                Button {
-                                    classify(drive, as: .personal)
-                                } label: {
-                                    Label("Personal", systemImage: "person.fill")
-                                }
-                                .tint(Theme.personal)
-                            }
-                            .contextMenu {
-                                contextMenuItems(for: drive, in: group.drives)
-                            }
+                            driveRow(drive, in: group.drives)
                         }
                     } header: {
                         HStack {
                             Text(Formatters.dayHeader(group.day))
                             Spacer()
                             Text(Formatters.miles(group.drives.reduce(0) { $0 + $1.distanceMiles }))
-                                .foregroundStyle(.secondary)
                         }
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Theme.muted)
+                        .textCase(nil)
+                        .padding(.horizontal, 4)
                     }
                 }
             }
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("Drives")
         .navigationDestination(for: UUID.self) { id in
             if let drive = drives.first(where: { $0.id == id }) {
@@ -74,16 +59,20 @@ struct DriveListView: View {
             }
         }
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                syncButton
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showingManualAdd = true
                 } label: {
                     Image(systemName: "plus")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 34, height: 34)
+                        .background(Theme.accent, in: Circle())
                 }
                 .accessibilityLabel("Add drive manually")
-            }
-            ToolbarItem(placement: .topBarLeading) {
-                syncButton
             }
         }
         .sheet(isPresented: $showingManualAdd) {
@@ -93,7 +82,38 @@ struct DriveListView: View {
         }
     }
 
-    // MARK: - Sections
+    // MARK: - Rows
+
+    private func driveRow(_ drive: Drive, in dayDrives: [Drive]) -> some View {
+        ZStack {
+            NavigationLink(value: drive.id) { EmptyView() }.opacity(0)
+            DriveRowView(drive: drive)
+        }
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            Button {
+                classify(drive, as: .business)
+            } label: {
+                Label("Business", systemImage: "briefcase.fill")
+            }
+            .tint(Theme.business)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button {
+                classify(drive, as: .personal)
+            } label: {
+                Label("Personal", systemImage: "person.fill")
+            }
+            .tint(Theme.personal)
+        }
+        .contextMenu {
+            contextMenuItems(for: drive, in: dayDrives)
+        }
+    }
+
+    // MARK: - Summary card
 
     private var monthSummary: (name: String, deduction: Double, miles: Double, toClassify: Int) {
         let calendar = Calendar.current
@@ -109,110 +129,126 @@ struct DriveListView: View {
         )
     }
 
-    @ViewBuilder
     private var summaryCard: some View {
-        if !drives.isEmpty {
-            let summary = monthSummary
-            Section {
-                HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(summary.name) deduction")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.75))
-                        Text(Formatters.money(summary.deduction))
-                            .font(.system(size: 26, weight: .heavy, design: .rounded))
-                            .foregroundStyle(.white)
-                    }
-                    Spacer()
-                    VStack(alignment: .trailing, spacing: 6) {
-                        Text("\(Formatters.miles(summary.miles)) tracked")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.85))
-                        if summary.toClassify > 0 {
-                            Text("\(summary.toClassify) to classify")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 3)
-                                .background(.white.opacity(0.18), in: Capsule())
-                        } else {
-                            Text("All classified")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(.white.opacity(0.85))
-                        }
-                    }
+        let summary = monthSummary
+        return HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(summary.name) deduction")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.75))
+                Text(Formatters.money(summary.deduction))
+                    .font(.system(size: 27, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 6) {
+                Text("\(Formatters.miles(summary.miles)) tracked")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.85))
+                if summary.toClassify > 0 {
+                    Text("\(summary.toClassify) to classify")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 3)
+                        .background(.white.opacity(0.18), in: Capsule())
+                } else {
+                    Text("All classified")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white.opacity(0.85))
                 }
-                .padding(18)
-                .background(Theme.accent, in: RoundedRectangle(cornerRadius: 18))
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                .listRowBackground(Color.clear)
             }
         }
+        .padding(18)
+        .background(Theme.accent, in: RoundedRectangle(cornerRadius: 18))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 10, trailing: 20))
     }
+
+    // MARK: - Status / empty
 
     @ViewBuilder
     private var statusSection: some View {
         if engine.authorizationStatus != .authorizedAlways || !engine.motionAvailable {
-            Section {
+            card {
                 PermissionBannerView()
             }
         }
         if engine.state == .active {
-            Section {
+            card {
                 HStack(spacing: 12) {
                     Image(systemName: "car.side.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(Theme.business)
                         .symbolEffect(.pulse)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Drive in progress")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.subheadline.weight(.bold))
                         if let started = engine.currentDriveStartedAt {
                             Text("Started \(Formatters.time(started)) · \(engine.currentDrivePointCount) GPS points")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Theme.muted)
                         }
                     }
                 }
             }
         }
         if case .error(let message) = sync.status {
-            Section {
+            card {
                 Label(message, systemImage: "exclamationmark.icloud")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Theme.unclassified)
             }
         }
     }
 
     private var emptyState: some View {
-        Section {
-            VStack(spacing: 10) {
+        card {
+            VStack(spacing: 12) {
                 Image(systemName: "car.2.fill")
-                    .font(.largeTitle)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 30))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 64, height: 64)
+                    .background(Theme.accentSoft, in: Circle())
                 Text("No drives yet")
-                    .font(.headline)
-                Text("Drives are detected automatically when you start moving. Keep the app installed, grant \u{201C}Always\u{201D} location access, and go for a drive — or add one manually with the + button.")
+                    .font(.headline.weight(.bold))
+                Text("Drives are detected automatically when you start moving. Grant \u{201C}Always\u{201D} location access and go for a drive — or add one manually with the + button.")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.muted)
                     .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 24)
+            .padding(.vertical, 16)
         }
+    }
+
+    private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
+            .shadow(color: Color(red: 0.14, green: 0.14, blue: 0.24).opacity(0.04), radius: 8, y: 3)
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
     }
 
     private var syncButton: some View {
         Button {
             sync.requestSync()
         } label: {
-            if sync.status == .syncing {
-                ProgressView()
-            } else if sync.pendingCount > 0 {
-                Label("\(sync.pendingCount)", systemImage: "arrow.triangle.2.circlepath")
-            } else {
-                Image(systemName: "arrow.triangle.2.circlepath")
+            Group {
+                if sync.status == .syncing {
+                    ProgressView()
+                } else {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Theme.accent)
+                }
             }
+            .frame(width: 34, height: 34)
+            .background(Theme.card, in: Circle())
+            .shadow(color: Color(red: 0.14, green: 0.14, blue: 0.24).opacity(0.06), radius: 6, y: 2)
         }
         .accessibilityLabel("Sync now")
     }
@@ -257,15 +293,12 @@ struct DriveListView: View {
         save()
     }
 
-    /// The chronologically-previous drive in the same day group (the list is
-    /// newest-first, so it's the next element).
     private func previousDrive(of drive: Drive, in dayDrives: [Drive]) -> Drive? {
         guard let index = dayDrives.firstIndex(where: { $0.id == drive.id }),
               index + 1 < dayDrives.count else { return nil }
         return dayDrives[index + 1]
     }
 
-    /// Merges two drives split by a short stop (GPS gaps happen) into one.
     private func merge(previous: Drive, next: Drive) {
         let coords = Polyline.decode(previous.encodedPolyline)
             + Polyline.decode(next.encodedPolyline)
@@ -325,8 +358,8 @@ struct DriveRowView: View {
                     .font(.subheadline.weight(.bold))
                 Text(routeDescription)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .foregroundStyle(Theme.muted)
+                    .lineLimit(1)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 3) {
@@ -339,7 +372,9 @@ struct DriveRowView: View {
                 }
             }
         }
-        .padding(.vertical, 2)
+        .padding(14)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
+        .shadow(color: Color(red: 0.14, green: 0.14, blue: 0.24).opacity(0.04), radius: 8, y: 3)
     }
 
     private var routeDescription: String {
