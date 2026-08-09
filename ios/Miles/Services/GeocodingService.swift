@@ -3,18 +3,15 @@ import Foundation
 
 /// Reverse geocoding via CLGeocoder — free, no API key. Results are cached
 /// coarsely (~100 m grid) since drives often start/end at the same places.
-final class GeocodingService {
+/// An actor so cache access is async-safe without manual locking.
+actor GeocodingService {
     private var cache: [String: String] = [:]
-    private let cacheLock = NSLock()
 
     func reverseGeocode(latitude: Double, longitude: Double) async -> String {
         let key = String(format: "%.3f,%.3f", latitude, longitude)
-        cacheLock.lock()
         if let cached = cache[key] {
-            cacheLock.unlock()
             return cached
         }
-        cacheLock.unlock()
 
         let geocoder = CLGeocoder()
         let location = CLLocation(latitude: latitude, longitude: longitude)
@@ -22,9 +19,7 @@ final class GeocodingService {
             let placemarks = try await geocoder.reverseGeocodeLocation(location)
             guard let placemark = placemarks.first else { return "" }
             let address = Self.format(placemark)
-            cacheLock.lock()
             cache[key] = address
-            cacheLock.unlock()
             return address
         } catch {
             // Offline or rate-limited — the drive is still saved; the address
