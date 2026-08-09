@@ -104,6 +104,8 @@ In Xcode:
 Everything below works on **free provisioning** — no paid-account
 entitlements (no CloudKit, no push, no App Groups) are used anywhere:
 
+- [x] App icon — `ios/Miles/Assets.xcassets/AppIcon.appiconset` (regenerate
+      with `python3 tools/make_icon.py` after editing that script)
 - [x] `UIBackgroundModes: location` — declared in `project.yml` (Info.plist)
 - [x] `NSLocationAlwaysAndWhenInUseUsageDescription` / `NSLocationWhenInUseUsageDescription`
 - [x] `NSMotionUsageDescription`
