@@ -32,6 +32,11 @@ struct ActiveDriveState: Codable {
     var lastMovementAt: Date
     /// Last moment motion activity reported automotive.
     var lastAutomotiveAt: Date
+    /// Last moment motion activity reported anything non-automotive.
+    var lastNonAutomotiveAt: Date? = nil
+    /// When a sustained pedestrian (walking/running) stretch began — the
+    /// strongest "drive is over" signal. Cleared if automotive resumes.
+    var firstWalkingAt: Date? = nil
 }
 
 /// Persists the active drive as JSON in Application Support. Writes are

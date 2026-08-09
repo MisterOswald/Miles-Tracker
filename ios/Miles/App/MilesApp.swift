@@ -35,6 +35,7 @@ struct MilesApp: App {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 DriveTrackingEngine.shared.start()
+                NotificationService.requestPermission()
                 SyncEngine.shared.requestSync()
                 SyncEngine.shared.refreshPendingCount()
             }

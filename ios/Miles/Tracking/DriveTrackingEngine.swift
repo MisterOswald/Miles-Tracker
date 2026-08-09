@@ -40,7 +40,13 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
     private let stationarySpeedThreshold = 2.0
     /// Discard GPS points with worse horizontal accuracy than this (meters).
     private let accuracyLimit = 50.0
-    /// End the drive after this long without automotive motion activity.
+    /// End the drive after this long of sustained walking — a positive
+    /// pedestrian signal is the fastest reliable "drive over" indicator
+    /// (and can't fire in traffic, unlike time-based rules).
+    private let walkingEndInterval: TimeInterval = 90
+    /// End the drive after this long without automotive motion activity
+    /// (requires a positive non-automotive signal since, so a long red
+    /// light can't false-end the drive).
     private let motionEndInterval: TimeInterval = 3 * 60
     /// End the drive after this long below the stationary speed threshold.
     private let speedEndInterval: TimeInterval = 5 * 60
@@ -114,6 +120,7 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
         }
         // Prompt for motion permission by starting updates once.
         startMotionUpdates()
+        NotificationService.requestPermission()
     }
 
     func setAutoTracking(enabled: Bool) {
@@ -214,7 +221,7 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
         locationManager.startUpdatingLocation()
 
         endCheckTimer?.invalidate()
-        endCheckTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+        endCheckTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.checkEndConditions()
             }
@@ -256,8 +263,14 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
     }
 
     private func handleMotionActivity(_ activity: CMMotionActivity) {
-        if activity.automotive && activity.confidence != .low {
-            activeDrive?.lastAutomotiveAt = activity.startDate
+        guard activity.confidence != .low else { return }
+        let now = Date()
+
+        if activity.automotive {
+            if activeDrive != nil {
+                activeDrive?.lastAutomotiveAt = now
+                activeDrive?.firstWalkingAt = nil
+            }
             switch state {
             case .idle:
                 beginEvaluation(reason: "automotive motion activity")
@@ -266,6 +279,18 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
             default:
                 break
             }
+            return
+        }
+
+        // Non-automotive signal while a drive is active: evidence the drive
+        // may be over.
+        guard state == .active, activeDrive != nil else { return }
+        activeDrive?.lastNonAutomotiveAt = now
+        if activity.walking || activity.running {
+            if activeDrive?.firstWalkingAt == nil {
+                activeDrive?.firstWalkingAt = now
+            }
+            checkEndConditions()
         }
     }
 
@@ -345,14 +370,27 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
         let noMovementFor = now.timeIntervalSince(drive.lastMovementAt)
         let noAutomotiveFor = now.timeIntervalSince(drive.lastAutomotiveAt)
 
+        // 1. Sustained walking — you got out of the car (MileIQ-fast, and
+        //    impossible while stuck in traffic).
+        let walkingRule: Bool = {
+            guard let walkingSince = drive.firstWalkingAt else { return false }
+            return now.timeIntervalSince(walkingSince) >= walkingEndInterval
+        }()
+        // 2. Stationary: no automotive signal for a while AND a positive
+        //    non-automotive signal since AND no GPS movement — a long red
+        //    light keeps reporting automotive, so it can't trip this.
+        let motionRule: Bool = {
+            guard motionAvailable,
+                  let nonAutomotive = drive.lastNonAutomotiveAt,
+                  nonAutomotive > drive.lastAutomotiveAt else { return false }
+            return noAutomotiveFor >= motionEndInterval && noMovementFor >= 120
+        }()
+        // 3. Speed fallback for when motion data is unavailable or silent.
         let speedRule = noMovementFor >= speedEndInterval
-        let motionRule = motionAvailable && noAutomotiveFor >= motionEndInterval
-            && noMovementFor >= 30 // motion alone shouldn't end a moving drive
 
-        if speedRule || motionRule {
-            let endedAt = drive.points.last?.timestamp ?? drive.lastMovementAt
-            NSLog("Miles: ending drive (speedRule=\(speedRule) motionRule=\(motionRule))")
-            finalizeActiveDrive(endedAt: endedAt)
+        if walkingRule || motionRule || speedRule {
+            NSLog("Miles: ending drive (walking=\(walkingRule) motion=\(motionRule) speed=\(speedRule))")
+            finalizeActiveDrive(endedAt: drive.points.last?.timestamp ?? drive.lastMovementAt)
         }
     }
 
@@ -380,7 +418,15 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
     }
 
     private func saveDrive(from state: ActiveDriveState, endedAt: Date) async {
-        let points = state.points.filter { $0.horizontalAccuracy <= accuracyLimit }
+        var points = state.points.filter { $0.horizontalAccuracy <= accuracyLimit }
+        // Trim the walk away from the car: drop trailing points recorded
+        // after the last real vehicle movement (+ a small buffer), so the
+        // stroll into the store isn't counted as route or distance.
+        let cutoff = state.lastMovementAt.addingTimeInterval(15)
+        if let lastDrivingIndex = points.lastIndex(where: { $0.timestamp <= cutoff }) {
+            points = Array(points[...lastDrivingIndex])
+        }
+        let endedAt = min(endedAt, points.last?.timestamp ?? endedAt)
         let miles = Geo.routeMiles(points: points)
         let duration = endedAt.timeIntervalSince(state.startedAt)
 
@@ -430,6 +476,12 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
         do {
             try context.save()
             NSLog("Miles: saved drive \(record.id) — \(record.distanceMiles) mi")
+            NotificationService.notifyDriveTracked(
+                miles: record.distanceMiles,
+                endAddress: endAddress,
+                potentialDeductionDollars: record.distanceMiles * rate / 100.0,
+                category: record.category
+            )
         } catch {
             NSLog("Miles: failed to save drive: \(error)")
         }
@@ -462,7 +514,7 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
             applyBackgroundUpdatesFlag()
             locationManager.startUpdatingLocation()
             endCheckTimer?.invalidate()
-            endCheckTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            endCheckTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
                 Task { @MainActor in
                     self?.checkEndConditions()
                 }
