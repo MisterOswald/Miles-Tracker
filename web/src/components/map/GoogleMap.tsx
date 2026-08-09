@@ -49,7 +49,7 @@ export default function GoogleMap({ route, height = 320 }: MapViewProps) {
         new g.Polyline({
           path,
           map,
-          strokeColor: "#1d5fd6",
+          strokeColor: "#5457d6",
           strokeWeight: 4,
           strokeOpacity: 0.85,
         });

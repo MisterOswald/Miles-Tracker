@@ -23,5 +23,6 @@ struct RootView: View {
                 Label("Settings", systemImage: "gearshape.fill")
             }
         }
+        .tint(Theme.accent)
     }
 }

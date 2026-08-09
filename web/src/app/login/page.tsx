@@ -37,9 +37,9 @@ export default function LoginPage() {
   return (
     <div className="login-wrap">
       <div className="login-box">
-        <h1>
-          Miles<span style={{ color: "var(--accent)" }}>.</span>
-        </h1>
+        <div className="brand-mark">M</div>
+        <h1>Welcome back</h1>
+        <div className="sub">Sign in to your mileage dashboard</div>
         <form onSubmit={onSubmit}>
           <input
             type="email"
@@ -58,7 +58,7 @@ export default function LoginPage() {
             required
           />
           {error && <div className="error-text">{error}</div>}
-          <button className="primary" type="submit" disabled={busy}>
+          <button className="btn primary" type="submit" disabled={busy}>
             {busy ? "Signing in…" : "Sign in"}
           </button>
         </form>

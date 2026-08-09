@@ -39,17 +39,17 @@ export default function LeafletMap({ route, height = 320 }: MapViewProps) {
       />
       <Polyline
         positions={route}
-        pathOptions={{ color: "#1d5fd6", weight: 4, opacity: 0.85 }}
+        pathOptions={{ color: "#5457d6", weight: 4, opacity: 0.9 }}
       />
       <CircleMarker
         center={start}
         radius={7}
-        pathOptions={{ color: "#fff", weight: 2, fillColor: "#157347", fillOpacity: 1 }}
+        pathOptions={{ color: "#fff", weight: 2, fillColor: "#2f9e77", fillOpacity: 1 }}
       />
       <CircleMarker
         center={end}
         radius={7}
-        pathOptions={{ color: "#fff", weight: 2, fillColor: "#c0392b", fillOpacity: 1 }}
+        pathOptions={{ color: "#fff", weight: 2, fillColor: "#d05a5a", fillOpacity: 1 }}
       />
     </MapContainer>
   );

@@ -12,7 +12,14 @@ export default function ReportDownloads({ years }: { years: number[] }) {
   if (category) params.set("category", category);
 
   return (
-    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+    <div
+      style={{
+        display: "flex",
+        gap: 10,
+        flexWrap: "wrap",
+        alignItems: "center",
+      }}
+    >
       <select value={year} onChange={(e) => setYear(Number(e.target.value))}>
         {years.map((y) => (
           <option key={y} value={y}>
@@ -33,10 +40,11 @@ export default function ReportDownloads({ years }: { years: number[] }) {
         <option value="business">Business only</option>
         <option value="personal">Personal only</option>
       </select>
+      <div style={{ flex: 1 }} />
       <a className="btn primary" href={`/api/export/pdf?${params}`} download>
         Download PDF
       </a>
-      <a className="btn" href={`/api/export/csv?${params}`} download>
+      <a className="btn soft" href={`/api/export/csv?${params}`} download>
         Download CSV
       </a>
     </div>

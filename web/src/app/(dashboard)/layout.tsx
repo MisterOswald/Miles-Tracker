@@ -1,7 +1,6 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { isAuthenticated } from "@/lib/auth";
-import LogoutButton from "@/components/LogoutButton";
+import Sidebar from "@/components/Sidebar";
 
 export default async function DashboardLayout({
   children,
@@ -12,20 +11,9 @@ export default async function DashboardLayout({
     redirect("/login");
   }
   return (
-    <div className="shell">
-      <header className="topnav">
-        <Link href="/" className="brand">
-          Miles<span>.</span>
-        </Link>
-        <nav>
-          <Link href="/">Dashboard</Link>
-          <Link href="/drives">Drives</Link>
-          <Link href="/reports">Reports</Link>
-        </nav>
-        <div className="spacer" />
-        <LogoutButton />
-      </header>
-      {children}
+    <div className="app-shell">
+      <Sidebar userEmail={process.env.MILES_EMAIL ?? ""} />
+      <div className="content">{children}</div>
     </div>
   );
 }

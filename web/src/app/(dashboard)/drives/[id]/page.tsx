@@ -1,18 +1,9 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { z } from "zod";
 import { sql } from "@/lib/db";
 import { rowToDTO } from "@/lib/drives";
 import { decodePolyline } from "@/lib/polyline";
-import {
-  deductionDollars,
-  formatDate,
-  formatDuration,
-  formatMoney,
-  formatTime,
-} from "@/lib/format";
-import MapView from "@/components/map/MapView";
-import DriveEditor from "@/components/DriveEditor";
+import DriveDetailClient from "@/components/DriveDetailClient";
 
 export const dynamic = "force-dynamic";
 
@@ -44,35 +35,5 @@ export default async function DriveDetailPage({
     ];
   }
 
-  return (
-    <main>
-      <p style={{ marginTop: 0 }}>
-        <Link href="/drives">← All drives</Link>
-      </p>
-      <h1>
-        {formatDate(drive.startedAt)}{" "}
-        <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>
-          {formatTime(drive.startedAt)} – {formatTime(drive.endedAt)}
-        </span>
-      </h1>
-      <p className="subtitle">
-        {drive.distanceMiles.toFixed(1)} miles · {formatDuration(drive)} ·{" "}
-        <span className={`badge ${drive.category}`}>{drive.category}</span>
-        {drive.category === "business" && (
-          <>
-            {" "}
-            · {formatMoney(deductionDollars(drive))} deduction at{" "}
-            {drive.rateCentsPerMile}¢/mi
-          </>
-        )}
-      </p>
-
-      <MapView route={route} height={380} />
-
-      <h2>Details</h2>
-      <div className="panel">
-        <DriveEditor drive={drive} />
-      </div>
-    </main>
-  );
+  return <DriveDetailClient drive={drive} route={route} />;
 }

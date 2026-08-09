@@ -6,8 +6,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DriveDTO } from "@/lib/drives";
 import {
   deductionDollars,
-  formatDate,
-  formatMiles,
   formatMoney,
   formatTime,
 } from "@/lib/format";
@@ -90,54 +88,75 @@ export default function DrivesTable() {
 
   return (
     <>
-      <div className="filters">
-        <select value={year} onChange={(e) => setFilter("year", e.target.value)}>
-          {yearOptions.map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </select>
-        <select
-          value={quarter}
-          onChange={(e) => setFilter("quarter", e.target.value)}
-        >
-          <option value="">All quarters</option>
-          {[1, 2, 3, 4].map((q) => (
-            <option key={q} value={q}>
-              Q{q}
-            </option>
-          ))}
-        </select>
-        <select
-          value={month}
-          onChange={(e) => setFilter("month", e.target.value)}
-        >
-          <option value="">All months</option>
-          {Array.from({ length: 12 }, (_, i) => (
-            <option key={i + 1} value={i + 1}>
-              {new Date(2000, i, 1).toLocaleString("en-US", { month: "long" })}
-            </option>
-          ))}
-        </select>
-        <select
-          value={category}
-          onChange={(e) => setFilter("category", e.target.value)}
-        >
-          <option value="">All categories</option>
-          <option value="business">Business</option>
-          <option value="personal">Personal</option>
-          <option value="unclassified">Unclassified</option>
-        </select>
-        {totals && (
-          <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
-            {totals.count} drives · {formatMiles(totals.miles)} ·{" "}
-            {formatMoney(totals.deduction)} deduction
-          </span>
-        )}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          marginBottom: 20,
+          flexWrap: "wrap",
+          gap: 12,
+        }}
+      >
+        <div>
+          <h1>Drives</h1>
+          <p className="subtitle" style={{ margin: 0 }}>
+            {totals ? (
+              <>
+                {totals.count} drives · {totals.miles.toFixed(1)} mi ·{" "}
+                <strong style={{ color: "var(--text)" }}>
+                  {formatMoney(totals.deduction)}
+                </strong>{" "}
+                deduction
+              </>
+            ) : (
+              "Filter, reclassify, and annotate drives."
+            )}
+          </p>
+        </div>
+        <div className="filters">
+          <select value={year} onChange={(e) => setFilter("year", e.target.value)}>
+            {yearOptions.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
+          <select
+            value={quarter}
+            onChange={(e) => setFilter("quarter", e.target.value)}
+          >
+            <option value="">All quarters</option>
+            {[1, 2, 3, 4].map((q) => (
+              <option key={q} value={q}>
+                Q{q}
+              </option>
+            ))}
+          </select>
+          <select
+            value={month}
+            onChange={(e) => setFilter("month", e.target.value)}
+          >
+            <option value="">All months</option>
+            {Array.from({ length: 12 }, (_, i) => (
+              <option key={i + 1} value={i + 1}>
+                {new Date(2000, i, 1).toLocaleString("en-US", { month: "long" })}
+              </option>
+            ))}
+          </select>
+          <select
+            value={category}
+            onChange={(e) => setFilter("category", e.target.value)}
+          >
+            <option value="">All categories</option>
+            <option value="business">Business</option>
+            <option value="personal">Personal</option>
+            <option value="unclassified">Unclassified</option>
+          </select>
+        </div>
       </div>
 
-      {error && <div className="error-text">{error}</div>}
+      {error && <div className="error-text" style={{ marginBottom: 12 }}>{error}</div>}
 
       {drives === null ? (
         <div className="empty">Loading…</div>
@@ -147,29 +166,17 @@ export default function DrivesTable() {
           <p>No drives match these filters.</p>
         </div>
       ) : (
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Route</th>
-              <th className="num">Miles</th>
-              <th>Category</th>
-              <th>Purpose</th>
-              <th className="num">Deduction</th>
-            </tr>
-          </thead>
-          <tbody>
-            {drives.map((d) => (
-              <DriveRow key={d.id} drive={d} onPatch={patchDrive} />
-            ))}
-          </tbody>
-        </table>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {drives.map((d) => (
+            <DriveCard key={d.id} drive={d} onPatch={patchDrive} />
+          ))}
+        </div>
       )}
     </>
   );
 }
 
-function DriveRow({
+function DriveCard({
   drive,
   onPatch,
 }: {
@@ -189,48 +196,54 @@ function DriveRow({
     }, 700);
   }
 
+  const dateShort = new Date(drive.startedAt).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+
   return (
-    <tr>
-      <td style={{ whiteSpace: "nowrap" }}>
-        <Link href={`/drives/${drive.id}`}>{formatDate(drive.startedAt)}</Link>
-        <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
-          {formatTime(drive.startedAt)} – {formatTime(drive.endedAt)}
-        </div>
-      </td>
-      <td>
-        <div>{drive.startAddress || "Unknown start"}</div>
-        <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
-          → {drive.endAddress || "Unknown end"}
-        </div>
-      </td>
-      <td className="num">{drive.distanceMiles.toFixed(1)}</td>
-      <td style={{ whiteSpace: "nowrap" }}>
+    <div className="drive-card">
+      <div className="when">
+        <Link href={`/drives/${drive.id}`}>
+          <div className="d" style={{ color: "var(--text)" }}>
+            {dateShort}
+          </div>
+        </Link>
+        <div className="t">{formatTime(drive.startedAt)}</div>
+      </div>
+      <div className="route">
+        <Link href={`/drives/${drive.id}`} style={{ color: "var(--text)" }}>
+          <div className="r">
+            {(drive.startAddress || "Unknown") + " → " + (drive.endAddress || "Unknown")}
+          </div>
+        </Link>
+        <input
+          placeholder="Add a purpose…"
+          value={note}
+          onChange={(e) => onNoteChange(e.target.value)}
+        />
+      </div>
+      <div className="mi">
+        {drive.distanceMiles.toFixed(1)}
+        <span> mi</span>
+      </div>
+      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
         <button
-          className={`small ${drive.category === "business" ? "active-business" : ""}`}
+          className={`cat-pill business ${drive.category === "business" ? "on" : ""}`}
           onClick={() => onPatch(drive.id, { category: "business" })}
         >
           Business
-        </button>{" "}
+        </button>
         <button
-          className={`small ${drive.category === "personal" ? "active-personal" : ""}`}
+          className={`cat-pill personal ${drive.category === "personal" ? "on" : ""}`}
           onClick={() => onPatch(drive.id, { category: "personal" })}
         >
           Personal
         </button>
-      </td>
-      <td>
-        <input
-          className="note-input"
-          placeholder="Purpose…"
-          value={note}
-          onChange={(e) => onNoteChange(e.target.value)}
-        />
-      </td>
-      <td className="num">
-        {drive.category === "business"
-          ? formatMoney(deductionDollars(drive))
-          : "—"}
-      </td>
-    </tr>
+      </div>
+      <div className="ded">
+        {drive.category === "business" ? formatMoney(deductionDollars(drive)) : ""}
+      </div>
+    </div>
   );
 }

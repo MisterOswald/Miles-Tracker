@@ -14,12 +14,11 @@ export default async function ReportsPage() {
   return (
     <main>
       <h1>Reports</h1>
-      <p className="subtitle">
-        CSV and PDF mileage reports for your CPA — date, route, miles,
-        category, purpose, rate, and deduction, with totals. Suitable for an
-        S-Corp accountable-plan reimbursement file.
+      <p className="subtitle" style={{ maxWidth: 560 }}>
+        CSV and PDF reports for your CPA — formatted for an S-Corp
+        accountable-plan reimbursement file.
       </p>
-      <div className="panel">
+      <div className="panel" style={{ padding: 24 }}>
         <ReportDownloads years={years} />
       </div>
     </main>

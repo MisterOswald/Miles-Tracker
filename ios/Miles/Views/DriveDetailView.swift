@@ -46,7 +46,7 @@ struct DriveDetailView: View {
                 if drive.category == .business {
                     LabeledContent("Deduction") {
                         Text(Formatters.money(drive.deductionDollars))
-                            .foregroundStyle(.green)
+                            .foregroundStyle(Theme.business)
                     }
                     LabeledContent("Rate", value: Formatters.rate(drive.rateCentsPerMile))
                 }
@@ -108,15 +108,15 @@ struct DriveDetailView: View {
         Map {
             if routeCoordinates.count >= 2 {
                 MapPolyline(coordinates: routeCoordinates)
-                    .stroke(.blue, lineWidth: 4)
+                    .stroke(Theme.accent, lineWidth: 4)
             }
             if let first = routeCoordinates.first {
                 Marker("Start", systemImage: "flag.fill", coordinate: first)
-                    .tint(.green)
+                    .tint(Theme.business)
             }
             if let last = routeCoordinates.last {
                 Marker("End", systemImage: "flag.checkered", coordinate: last)
-                    .tint(.red)
+                    .tint(Theme.danger)
             }
         }
         .mapStyle(.standard)

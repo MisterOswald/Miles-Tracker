@@ -25,6 +25,7 @@ struct DriveListView: View {
     var body: some View {
         List {
             statusSection
+            summaryCard
 
             if drives.isEmpty {
                 emptyState
@@ -41,7 +42,7 @@ struct DriveListView: View {
                                 } label: {
                                     Label("Business", systemImage: "briefcase.fill")
                                 }
-                                .tint(.green)
+                                .tint(Theme.business)
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button {
@@ -49,7 +50,7 @@ struct DriveListView: View {
                                 } label: {
                                     Label("Personal", systemImage: "person.fill")
                                 }
-                                .tint(.purple)
+                                .tint(Theme.personal)
                             }
                             .contextMenu {
                                 contextMenuItems(for: drive, in: group.drives)
@@ -93,6 +94,61 @@ struct DriveListView: View {
     }
 
     // MARK: - Sections
+
+    private var monthSummary: (name: String, deduction: Double, miles: Double, toClassify: Int) {
+        let calendar = Calendar.current
+        let now = Date()
+        let monthDrives = drives.filter {
+            calendar.isDate($0.startedAt, equalTo: now, toGranularity: .month)
+        }
+        return (
+            now.formatted(.dateTime.month(.wide)),
+            monthDrives.reduce(0) { $0 + $1.deductionDollars },
+            monthDrives.reduce(0) { $0 + $1.distanceMiles },
+            monthDrives.filter { $0.category == .unclassified }.count
+        )
+    }
+
+    @ViewBuilder
+    private var summaryCard: some View {
+        if !drives.isEmpty {
+            let summary = monthSummary
+            Section {
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(summary.name) deduction")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.75))
+                        Text(Formatters.money(summary.deduction))
+                            .font(.system(size: 26, weight: .heavy, design: .rounded))
+                            .foregroundStyle(.white)
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 6) {
+                        Text("\(Formatters.miles(summary.miles)) tracked")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.85))
+                        if summary.toClassify > 0 {
+                            Text("\(summary.toClassify) to classify")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 3)
+                                .background(.white.opacity(0.18), in: Capsule())
+                        } else {
+                            Text("All classified")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.white.opacity(0.85))
+                        }
+                    }
+                }
+                .padding(18)
+                .background(Theme.accent, in: RoundedRectangle(cornerRadius: 18))
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                .listRowBackground(Color.clear)
+            }
+        }
+    }
 
     @ViewBuilder
     private var statusSection: some View {
@@ -263,10 +319,10 @@ struct DriveRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            categoryIndicator
+            categoryChip
             VStack(alignment: .leading, spacing: 3) {
                 Text("\(Formatters.time(drive.startedAt)) – \(Formatters.time(drive.endedAt))")
-                    .font(.subheadline.weight(.medium))
+                    .font(.subheadline.weight(.bold))
                 Text(routeDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -275,11 +331,11 @@ struct DriveRowView: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 3) {
                 Text(Formatters.miles(drive.distanceMiles))
-                    .font(.subheadline.weight(.semibold))
+                    .font(.subheadline.weight(.heavy))
                 if drive.category == .business {
                     Text(Formatters.money(drive.deductionDollars))
-                        .font(.caption)
-                        .foregroundStyle(.green)
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Theme.business)
                 }
             }
         }
@@ -292,17 +348,22 @@ struct DriveRowView: View {
         return "\(start) → \(end)"
     }
 
-    private var categoryIndicator: some View {
-        Circle()
-            .fill(color)
-            .frame(width: 10, height: 10)
+    private var categoryChip: some View {
+        Text(chipLetter)
+            .font(.subheadline.weight(.heavy))
+            .foregroundStyle(Theme.color(for: drive.category))
+            .frame(width: 40, height: 40)
+            .background(
+                Theme.softColor(for: drive.category),
+                in: RoundedRectangle(cornerRadius: 13)
+            )
     }
 
-    private var color: Color {
+    private var chipLetter: String {
         switch drive.category {
-        case .business: return .green
-        case .personal: return .purple
-        case .unclassified: return .orange
+        case .business: return "B"
+        case .personal: return "P"
+        case .unclassified: return "?"
         }
     }
 }
