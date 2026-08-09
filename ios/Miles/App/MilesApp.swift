@@ -12,6 +12,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         if launchOptions?[.location] != nil {
             NSLog("Miles: relaunched in background by a location event")
         }
+        // Must register before the app finishes launching.
+        BackgroundSync.register()
         Task { @MainActor in
             Persistence.seedDefaultRates()
             DriveTrackingEngine.shared.start()
@@ -36,11 +38,16 @@ struct MilesApp: App {
         }
         .modelContainer(Persistence.container)
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active {
+            switch phase {
+            case .active:
                 DriveTrackingEngine.shared.start()
                 NotificationService.requestPermission()
                 SyncEngine.shared.requestSync()
                 SyncEngine.shared.refreshPendingCount()
+            case .background:
+                BackgroundSync.schedule()
+            default:
+                break
             }
         }
     }
