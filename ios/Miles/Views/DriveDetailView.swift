@@ -118,13 +118,13 @@ struct DriveDetailView: View {
                 value: String(format: "%.1f", drive.distanceMiles),
                 label: "miles",
                 background: Theme.card,
-                foreground: Color.primary
+                foreground: Theme.text
             )
             statTile(
                 value: "\(max(1, Int((drive.duration / 60).rounded())))",
                 label: "minutes",
                 background: Theme.card,
-                foreground: Color.primary
+                foreground: Theme.text
             )
             statTile(
                 value: drive.category == .business
@@ -134,7 +134,7 @@ struct DriveDetailView: View {
                     ? "deduction"
                     : "if business: " + Formatters.money(drive.distanceMiles * drive.rateCentsPerMile / 100.0),
                 background: drive.category == .business ? Theme.businessSoft : Theme.card,
-                foreground: drive.category == .business ? Theme.business : Color.primary
+                foreground: drive.category == .business ? Theme.business : Theme.text
             )
         }
     }
@@ -148,7 +148,7 @@ struct DriveDetailView: View {
                 .minimumScaleFactor(0.6)
             Text(label)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(foreground == Color.primary ? Theme.muted : foreground)
+                .foregroundStyle(foreground == Theme.text ? Theme.muted : foreground)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
         }
@@ -212,6 +212,7 @@ struct DriveDetailView: View {
                         .foregroundStyle(Theme.muted)
                     Text(drive.startAddress.isEmpty ? "Unknown start" : drive.startAddress)
                         .font(.subheadline.weight(.bold))
+                        .foregroundStyle(Theme.text)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(Formatters.time(drive.endedAt))
@@ -219,6 +220,7 @@ struct DriveDetailView: View {
                         .foregroundStyle(Theme.muted)
                     Text(drive.endAddress.isEmpty ? "Unknown end" : drive.endAddress)
                         .font(.subheadline.weight(.bold))
+                        .foregroundStyle(Theme.text)
                 }
             }
             Spacer(minLength: 0)

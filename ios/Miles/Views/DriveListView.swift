@@ -356,6 +356,7 @@ struct DriveRowView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("\(Formatters.time(drive.startedAt)) – \(Formatters.time(drive.endedAt))")
                     .font(.subheadline.weight(.bold))
+                    .foregroundStyle(Theme.text)
                 Text(routeDescription)
                     .font(.caption)
                     .foregroundStyle(Theme.muted)
@@ -365,6 +366,7 @@ struct DriveRowView: View {
             VStack(alignment: .trailing, spacing: 3) {
                 Text(Formatters.miles(drive.distanceMiles))
                     .font(.subheadline.weight(.heavy))
+                    .foregroundStyle(Theme.text)
                 if drive.category == .business {
                     Text(Formatters.money(drive.deductionDollars))
                         .font(.caption.weight(.bold))

@@ -30,6 +30,9 @@ struct MilesApp: App {
             RootView()
                 .environmentObject(DriveTrackingEngine.shared)
                 .environmentObject(SyncEngine.shared)
+                // The Soft SaaS design is light-only; without this, dark mode
+                // flips system text/card colors and breaks contrast.
+                .preferredColorScheme(.light)
         }
         .modelContainer(Persistence.container)
         .onChange(of: scenePhase) { _, phase in
