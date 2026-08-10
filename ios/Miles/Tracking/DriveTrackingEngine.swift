@@ -36,6 +36,9 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
 
     /// Speed treated as "definitely driving" when deciding to start (m/s).
     private let drivingSpeedThreshold = 4.5
+    /// A single reading at or above this speed confirms a drive immediately
+    /// (~14.5 mph — nothing but a vehicle sustains it).
+    private let fastPromotionSpeed = 6.5
     /// Speed below which the vehicle counts as stopped (m/s) — spec: 2 m/s.
     private let stationarySpeedThreshold = 2.0
     /// Discard GPS points with worse horizontal accuracy than this (meters).
@@ -71,6 +74,10 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
     private var activeDrive: ActiveDriveState?
     private var evaluationStartedAt: Date?
     private var evaluationSpeedHits = 0
+    /// GPS points collected while evaluating. When the drive is confirmed
+    /// they're backfilled into it, so the first blocks aren't lost to the
+    /// confirmation delay.
+    private var evaluationBuffer: [DrivePoint] = []
     private var endCheckTimer: Timer?
     private var evaluationTimer: Timer?
     private var isFinalizing = false
@@ -154,6 +161,7 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
         evaluationTimer = nil
         evaluationStartedAt = nil
         evaluationSpeedHits = 0
+        evaluationBuffer = []
         currentDrivePointCount = 0
         currentDriveStartedAt = nil
 
@@ -170,9 +178,13 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
         state = .evaluating
         evaluationStartedAt = Date()
         evaluationSpeedHits = 0
+        evaluationBuffer = []
 
-        locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-        locationManager.distanceFilter = 20
+        // Full accuracy from the first moment: evaluation points are
+        // backfilled into the drive when it's confirmed, so they must be
+        // route-quality. A few minutes of GPS costs almost nothing.
+        locationManager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+        locationManager.distanceFilter = 10
         applyBackgroundUpdatesFlag()
         locationManager.startUpdatingLocation()
 
@@ -197,17 +209,36 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
         isFinalizing = false
 
         let now = Date()
-        var drive = ActiveDriveState(
+
+        // Seed the drive with everything captured while evaluating, so the
+        // first blocks driven during confirmation aren't lost. Points from
+        // before the car actually moved (sitting parked, walking to the car)
+        // are trimmed off the front.
+        var seedPoints = evaluationBuffer
+        if let seed = seedLocation, seed.horizontalAccuracy >= 0,
+           seed.horizontalAccuracy <= accuracyLimit {
+            let seedPoint = DrivePoint(location: seed)
+            if seedPoints.last?.timestamp != seedPoint.timestamp {
+                seedPoints.append(seedPoint)
+            }
+        }
+        seedPoints.sort { $0.timestamp < $1.timestamp }
+        if let firstMoving = seedPoints.firstIndex(where: {
+            $0.speed >= stationarySpeedThreshold
+        }) {
+            seedPoints = Array(seedPoints[firstMoving...])
+        } else if seedPoints.count > 1 {
+            seedPoints = [seedPoints[seedPoints.count - 1]]
+        }
+        evaluationBuffer = []
+
+        let drive = ActiveDriveState(
             id: UUID(),
-            startedAt: seedLocation?.timestamp ?? now,
-            points: [],
+            startedAt: seedPoints.first?.timestamp ?? now,
+            points: seedPoints,
             lastMovementAt: now,
             lastAutomotiveAt: now
         )
-        if let seed = seedLocation, seed.horizontalAccuracy <= accuracyLimit,
-           seed.horizontalAccuracy >= 0 {
-            drive.points.append(DrivePoint(location: seed))
-        }
         activeDrive = drive
         currentDriveStartedAt = drive.startedAt
         currentDrivePointCount = drive.points.count
@@ -324,13 +355,19 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
             if let last = locations.last {
                 if last.speed >= drivingSpeedThreshold {
                     beginEvaluation(reason: "SLC with driving speed")
+                    bufferEvaluationPoints(locations)
                 } else {
                     queryRecentAutomotiveActivity()
                 }
             }
         case .evaluating:
-            for location in locations where location.speed >= drivingSpeedThreshold {
-                evaluationSpeedHits += 1
+            bufferEvaluationPoints(locations)
+            for location in locations {
+                if location.speed >= fastPromotionSpeed {
+                    evaluationSpeedHits += 2
+                } else if location.speed >= drivingSpeedThreshold {
+                    evaluationSpeedHits += 1
+                }
             }
             if evaluationSpeedHits >= 2 {
                 beginActiveTracking(seedLocation: locations.last)
@@ -339,6 +376,18 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
             recordActivePoints(locations)
         case .off:
             break
+        }
+    }
+
+    private func bufferEvaluationPoints(_ locations: [CLLocation]) {
+        for location in locations {
+            guard location.horizontalAccuracy >= 0,
+                  location.horizontalAccuracy <= accuracyLimit else { continue }
+            evaluationBuffer.append(DrivePoint(location: location))
+        }
+        // An evaluation lasts minutes at most; this cap is just a backstop.
+        if evaluationBuffer.count > 600 {
+            evaluationBuffer.removeFirst(evaluationBuffer.count - 600)
         }
     }
 
