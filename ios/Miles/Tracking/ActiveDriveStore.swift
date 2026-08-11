@@ -6,6 +6,9 @@ struct DrivePoint: Codable, Equatable {
     let latitude: Double
     let longitude: Double
     let timestamp: Date
+    /// Meters/second as reported by CoreLocation; negative means unknown
+    /// (common on the first fixes after a wake) — never treat unknown as
+    /// stationary.
     let speed: Double
     let horizontalAccuracy: Double
 
@@ -13,8 +16,22 @@ struct DrivePoint: Codable, Equatable {
         latitude = location.coordinate.latitude
         longitude = location.coordinate.longitude
         timestamp = location.timestamp
-        speed = max(location.speed, 0)
+        speed = location.speed
         horizontalAccuracy = location.horizontalAccuracy
+    }
+
+    init(
+        latitude: Double,
+        longitude: Double,
+        timestamp: Date,
+        speed: Double,
+        horizontalAccuracy: Double
+    ) {
+        self.latitude = latitude
+        self.longitude = longitude
+        self.timestamp = timestamp
+        self.speed = speed
+        self.horizontalAccuracy = horizontalAccuracy
     }
 
     var coordinate: CLLocationCoordinate2D {

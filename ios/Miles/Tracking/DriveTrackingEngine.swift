@@ -188,6 +188,13 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
         applyBackgroundUpdatesFlag()
         locationManager.startUpdatingLocation()
 
+        // The wake itself often carries a fresh fix from before our updates
+        // start — capture it so the route reaches back as early as possible.
+        if let cached = locationManager.location,
+           Date().timeIntervalSince(cached.timestamp) < 120 {
+            bufferEvaluationPoints([cached])
+        }
+
         evaluationTimer?.invalidate()
         evaluationTimer = Timer.scheduledTimer(
             withTimeInterval: evaluationTimeout, repeats: false
@@ -211,9 +218,7 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
         let now = Date()
 
         // Seed the drive with everything captured while evaluating, so the
-        // first blocks driven during confirmation aren't lost. Points from
-        // before the car actually moved (sitting parked, walking to the car)
-        // are trimmed off the front.
+        // first blocks driven during confirmation aren't lost.
         var seedPoints = evaluationBuffer
         if let seed = seedLocation, seed.horizontalAccuracy >= 0,
            seed.horizontalAccuracy <= accuracyLimit {
@@ -223,14 +228,22 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
             }
         }
         seedPoints.sort { $0.timestamp < $1.timestamp }
-        if let firstMoving = seedPoints.firstIndex(where: {
-            $0.speed >= stationarySpeedThreshold
-        }) {
-            seedPoints = Array(seedPoints[firstMoving...])
-        } else if seedPoints.count > 1 {
-            seedPoints = [seedPoints[seedPoints.count - 1]]
+        // Trim only points where GPS *confidently* says parked (a real
+        // near-zero speed reading). Unknown speeds are kept — the first
+        // fixes after a wake usually lack speed and are real driving.
+        while seedPoints.count > 1,
+              let s = seedPoints.first?.speed, s >= 0, s < 0.5 {
+            seedPoints.removeFirst()
         }
         evaluationBuffer = []
+
+        // Anchor the route at the last known parked spot (previous drive's
+        // end / last visit). iOS often wakes us a few blocks into a trip;
+        // the car provably started where it was parked, so include that
+        // leg the way MileIQ does.
+        if let anchor = parkedAnchor(before: seedPoints.first) {
+            seedPoints.insert(anchor, at: 0)
+        }
 
         let drive = ActiveDriveState(
             id: UUID(),
@@ -379,6 +392,31 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
         }
     }
 
+    /// Synthesizes a starting point at the car's last parked location when
+    /// the first real fix is meaningfully away from it (we woke up late) but
+    /// still plausibly the same trip (< 3 miles).
+    private func parkedAnchor(before first: DrivePoint?) -> DrivePoint? {
+        guard let first,
+              let parked = AppSettings.lastParked,
+              Date().timeIntervalSince(parked.at) < 7 * 24 * 3600 else { return nil }
+        let gapMeters = Geo.haversineMeters(
+            lat1: parked.latitude, lng1: parked.longitude,
+            lat2: first.latitude, lng2: first.longitude
+        )
+        guard gapMeters > 30, gapMeters < 4800 else { return nil }
+        // Back-date the anchor as if that leg was driven at ~18 mph so the
+        // glitch guard in the distance sum accepts the segment.
+        let travelSeconds = max(gapMeters / 8.0, 15)
+        NSLog("Miles: anchoring drive start at parked location (%.0f m gap)", gapMeters)
+        return DrivePoint(
+            latitude: parked.latitude,
+            longitude: parked.longitude,
+            timestamp: first.timestamp.addingTimeInterval(-travelSeconds),
+            speed: -1,
+            horizontalAccuracy: 25
+        )
+    }
+
     private func bufferEvaluationPoints(_ locations: [CLLocation]) {
         for location in locations {
             guard location.horizontalAccuracy >= 0,
@@ -449,6 +487,12 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
         guard let drive = activeDrive, !isFinalizing else { return }
         isFinalizing = true
         locationManager.stopUpdatingLocation()
+
+        // Wherever this drive ended is where the car is now parked — the
+        // anchor for the next drive's start.
+        if let lastPoint = drive.points.last(where: { $0.horizontalAccuracy <= accuracyLimit }) {
+            AppSettings.lastParked = (lastPoint.latitude, lastPoint.longitude, Date())
+        }
 
         Task { @MainActor in
             await self.saveDrive(from: drive, endedAt: endedAt)
@@ -585,6 +629,15 @@ extension DriveTrackingEngine: CLLocationManagerDelegate {
 
     nonisolated func locationManager(_ manager: CLLocationManager, didVisit visit: CLVisit) {
         Task { @MainActor in
+            // A visit is a place the phone dwelled — i.e. where the car sits
+            // parked. Track it as the anchor for the next drive's start.
+            if self.state != .active {
+                AppSettings.lastParked = (
+                    visit.coordinate.latitude,
+                    visit.coordinate.longitude,
+                    Date()
+                )
+            }
             // A departure visit (arrival recorded, departure now known) means
             // we just left somewhere — a classic drive start signal.
             if visit.departureDate != .distantFuture, self.state == .idle {

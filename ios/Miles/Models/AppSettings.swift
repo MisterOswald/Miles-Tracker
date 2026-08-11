@@ -14,6 +14,9 @@ enum AppSettings {
         static let accountEmail = "accountEmail"
         static let syncCursor = "syncCursor"
         static let lastSyncAt = "lastSyncAt"
+        static let lastParkedLatitude = "lastParkedLatitude"
+        static let lastParkedLongitude = "lastParkedLongitude"
+        static let lastParkedAt = "lastParkedAt"
     }
 
     /// Master switch for automatic drive detection.
@@ -61,5 +64,24 @@ enum AppSettings {
     static var lastSyncAt: Date? {
         get { defaults.object(forKey: Key.lastSyncAt) as? Date }
         set { defaults.set(newValue, forKey: Key.lastSyncAt) }
+    }
+
+    /// Where the car was last parked (previous drive's end, or a CLVisit).
+    /// Used to anchor the start of the next drive at the true origin even
+    /// when iOS wakes the app a few blocks into the trip.
+    static var lastParked: (latitude: Double, longitude: Double, at: Date)? {
+        get {
+            guard let lat = defaults.object(forKey: Key.lastParkedLatitude) as? Double,
+                  let lng = defaults.object(forKey: Key.lastParkedLongitude) as? Double,
+                  let at = defaults.object(forKey: Key.lastParkedAt) as? Date else {
+                return nil
+            }
+            return (lat, lng, at)
+        }
+        set {
+            defaults.set(newValue?.latitude, forKey: Key.lastParkedLatitude)
+            defaults.set(newValue?.longitude, forKey: Key.lastParkedLongitude)
+            defaults.set(newValue?.at, forKey: Key.lastParkedAt)
+        }
     }
 }
