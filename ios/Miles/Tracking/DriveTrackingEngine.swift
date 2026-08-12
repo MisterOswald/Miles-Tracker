@@ -93,7 +93,10 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
     // MARK: - Lifecycle
 
     /// Called from app launch (including background relaunches via SLC).
-    func start() {
+    /// Pass `fromLocationWake: true` when iOS relaunched us for a location
+    /// event — that means the device is moving and we must start evaluating
+    /// synchronously, before the system re-suspends us.
+    func start(fromLocationWake: Bool = false) {
         authorizationStatus = locationManager.authorizationStatus
         recoverPersistedDriveIfNeeded()
 
@@ -110,10 +113,16 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
             enterIdle()
         }
         startMotionUpdates()
-        // If we were relaunched by the system after movement, check whether
-        // the motion coprocessor saw automotive activity in the last few
-        // minutes and skip straight to evaluation.
-        queryRecentAutomotiveActivity()
+        if fromLocationWake, state == .idle {
+            // Relaunched from terminated state by a location event: the
+            // device is moving. Evaluate now — the continuous updates keep
+            // us alive; an async motion query would not.
+            beginEvaluation(reason: "background location relaunch")
+        } else if state == .idle {
+            // Normal foreground open: only spin up GPS if the motion chip
+            // says we were just driving.
+            queryRecentAutomotiveActivity()
+        }
     }
 
     func requestPermissions() {
@@ -363,16 +372,15 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
     fileprivate func handleLocations(_ locations: [CLLocation]) {
         switch state {
         case .idle:
-            // A significant-location-change fired. If we're clearly moving,
-            // start evaluating (the SLC fix itself is often coarse).
-            if let last = locations.last {
-                if last.speed >= drivingSpeedThreshold {
-                    beginEvaluation(reason: "SLC with driving speed")
-                    bufferEvaluationPoints(locations)
-                } else {
-                    queryRecentAutomotiveActivity()
-                }
-            }
+            // A significant-location-change fired: the device moved ~500 m,
+            // which almost always means a drive is starting. Begin evaluating
+            // IMMEDIATELY and synchronously — starting continuous location
+            // updates is what keeps a background-woken app alive. Waiting on
+            // an async motion query here loses the race against re-suspension
+            // and the drive gets missed entirely. A false alarm (a long walk)
+            // just times out back to idle after 3 minutes.
+            beginEvaluation(reason: "significant location change")
+            bufferEvaluationPoints(locations)
         case .evaluating:
             bufferEvaluationPoints(locations)
             for location in locations {

@@ -9,15 +9,17 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        if launchOptions?[.location] != nil {
+        let locationWake = launchOptions?[.location] != nil
+        if locationWake {
             NSLog("Miles: relaunched in background by a location event")
         }
         // Must register before the app finishes launching.
         BackgroundSync.register()
-        Task { @MainActor in
-            Persistence.seedDefaultRates()
-            DriveTrackingEngine.shared.start()
-        }
+        // Synchronous on purpose: on a background location relaunch the
+        // engine must arm continuous updates before the launch window closes,
+        // or iOS re-suspends us and the drive is missed.
+        Persistence.seedDefaultRates()
+        DriveTrackingEngine.shared.start(fromLocationWake: locationWake)
         return true
     }
 }
