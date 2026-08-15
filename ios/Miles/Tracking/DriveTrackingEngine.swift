@@ -1,6 +1,7 @@
 import CoreLocation
 import CoreMotion
 import Foundation
+import MapKit
 import SwiftData
 
 /// The MileIQ-style drive detection state machine.
@@ -527,6 +528,10 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
         if let lastDrivingIndex = points.lastIndex(where: { $0.timestamp <= cutoff }) {
             points = Array(points[...lastDrivingIndex])
         }
+        // Fill large gaps (the parked-spot anchor leg, GPS dropouts) with the
+        // actual road path so the route doesn't cut through houses and the
+        // mileage follows the streets.
+        points = await Self.mapMatchGaps(in: points)
         let finalEndedAt = min(endedAt, points.last?.timestamp ?? endedAt)
         let miles = Geo.routeMiles(points: points)
         let duration = finalEndedAt.timeIntervalSince(state.startedAt)
@@ -585,6 +590,73 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
             )
         } catch {
             NSLog("Miles: failed to save drive: \(error)")
+        }
+    }
+
+    // MARK: - Gap map-matching
+
+    /// Replaces straight-line jumps between distant consecutive points with
+    /// the Apple Maps driving path between them. Bounded to a few lookups
+    /// per drive; on failure (offline) the straight line stays.
+    private static func mapMatchGaps(in points: [DrivePoint]) async -> [DrivePoint] {
+        guard points.count >= 2 else { return points }
+        let gapThresholdMeters = 250.0
+        var budget = 3
+        var result: [DrivePoint] = [points[0]]
+
+        for index in 1..<points.count {
+            let prev = points[index - 1]
+            let next = points[index]
+            let gap = Geo.haversineMeters(
+                lat1: prev.latitude, lng1: prev.longitude,
+                lat2: next.latitude, lng2: next.longitude
+            )
+            if gap > gapThresholdMeters, budget > 0 {
+                budget -= 1
+                if let filled = await roadPath(from: prev, to: next, straightGap: gap) {
+                    result.append(contentsOf: filled)
+                }
+            }
+            result.append(next)
+        }
+        return result
+    }
+
+    private static func roadPath(
+        from a: DrivePoint, to b: DrivePoint, straightGap: Double
+    ) async -> [DrivePoint]? {
+        let request = MKDirections.Request()
+        request.source = MKMapItem(placemark: MKPlacemark(coordinate: a.coordinate))
+        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: b.coordinate))
+        request.transportType = .automobile
+
+        guard let route = try? await MKDirections(request: request).calculate().routes.first,
+              route.distance < straightGap * 3 // reject absurd detours
+        else { return nil }
+
+        let polyline = route.polyline
+        var coords = [CLLocationCoordinate2D](
+            repeating: CLLocationCoordinate2D(latitude: 0, longitude: 0),
+            count: polyline.pointCount
+        )
+        polyline.getCoordinates(&coords, range: NSRange(location: 0, length: polyline.pointCount))
+        guard coords.count > 2 else { return nil }
+
+        // Spread timestamps across the gap so downstream math stays sane.
+        let interval = max(b.timestamp.timeIntervalSince(a.timestamp), 1)
+        let inner = Array(coords.dropFirst().dropLast())
+        let steps = Double(inner.count + 1)
+        NSLog("Miles: map-matched a %.0f m gap with %d road points", straightGap, inner.count)
+        return inner.enumerated().map { offset, coordinate in
+            DrivePoint(
+                latitude: coordinate.latitude,
+                longitude: coordinate.longitude,
+                timestamp: a.timestamp.addingTimeInterval(
+                    interval * Double(offset + 1) / steps
+                ),
+                speed: -1,
+                horizontalAccuracy: 25
+            )
         }
     }
 
