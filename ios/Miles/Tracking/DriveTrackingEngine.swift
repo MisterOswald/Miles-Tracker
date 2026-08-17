@@ -428,8 +428,7 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
 
     private func bufferEvaluationPoints(_ locations: [CLLocation]) {
         for location in locations {
-            guard location.horizontalAccuracy >= 0,
-                  location.horizontalAccuracy <= accuracyLimit else { continue }
+            guard shouldRecord(location, after: evaluationBuffer.last) else { continue }
             evaluationBuffer.append(DrivePoint(location: location))
         }
         // An evaluation lasts minutes at most; this cap is just a backstop.
@@ -442,13 +441,12 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
         guard var drive = activeDrive else { return }
         var appended = false
         for location in locations {
-            guard location.horizontalAccuracy >= 0,
-                  location.horizontalAccuracy <= accuracyLimit else { continue }
-            drive.points.append(DrivePoint(location: location))
-            appended = true
             if location.speed >= stationarySpeedThreshold {
                 drive.lastMovementAt = max(drive.lastMovementAt, location.timestamp)
             }
+            guard shouldRecord(location, after: drive.points.last) else { continue }
+            drive.points.append(DrivePoint(location: location))
+            appended = true
         }
         activeDrive = drive
         if appended {
@@ -456,6 +454,35 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
             store.save(drive)
         }
         checkEndConditions()
+    }
+
+    /// Point-acceptance gate. GPS wanders in a 20–50 m blob while the car
+    /// sits at a light; recording that wander draws zigzag spikes through
+    /// intersections and pads the mileage. Only record real movement:
+    /// - never a move smaller than the fix's own error radius,
+    /// - while stopped, demand clear separation before believing movement,
+    /// - never a physically impossible jump.
+    private func shouldRecord(_ location: CLLocation, after last: DrivePoint?) -> Bool {
+        guard location.horizontalAccuracy >= 0,
+              location.horizontalAccuracy <= accuracyLimit else { return false }
+        guard let last else { return true }
+
+        let meters = Geo.haversineMeters(
+            lat1: last.latitude, lng1: last.longitude,
+            lat2: location.coordinate.latitude, lng2: location.coordinate.longitude
+        )
+        let minSpacing = max(15.0, min(location.horizontalAccuracy, 30.0))
+        if meters < minSpacing { return false }
+
+        let stopped = location.speed >= 0 && location.speed < stationarySpeedThreshold
+        if stopped, meters < max(40.0, location.horizontalAccuracy * 1.5) {
+            return false
+        }
+
+        let dt = location.timestamp.timeIntervalSince(last.timestamp)
+        if dt > 0, meters / dt > 70 { return false }
+
+        return true
     }
 
     private func checkEndConditions() {
