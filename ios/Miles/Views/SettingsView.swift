@@ -59,6 +59,12 @@ struct SettingsView: View {
                 .disabled(sync.status == .syncing)
             }
 
+            Section("Troubleshooting") {
+                NavigationLink("Diagnostics log") {
+                    DiagnosticsView()
+                }
+            }
+
             Section {
                 LabeledContent("Version", value: appVersion)
             } footer: {

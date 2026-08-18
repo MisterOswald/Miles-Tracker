@@ -99,6 +99,9 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
     /// synchronously, before the system re-suspends us.
     func start(fromLocationWake: Bool = false) {
         authorizationStatus = locationManager.authorizationStatus
+        DiagLog.shared.log(
+            "start(locationWake: \(fromLocationWake)) auth=\(authorizationStatus.rawValue) state=\(stateName)"
+        )
         recoverPersistedDriveIfNeeded()
 
         guard AppSettings.autoTrackingEnabled else {
@@ -179,12 +182,48 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
         locationManager.allowsBackgroundLocationUpdates = false
         locationManager.startMonitoringSignificantLocationChanges()
         locationManager.startMonitoringVisits()
+        armParkedRegion()
         state = .idle
+        DiagLog.shared.log("idle: SLC + visits + parked geofence armed")
+    }
+
+    private let parkedRegionIdentifier = "com.miles.parkedRegion"
+
+    /// Exit-geofence around the car's parked spot — fires earlier and more
+    /// reliably than a significant-location-change, and also relaunches the
+    /// app from terminated state.
+    private func armParkedRegion() {
+        for region in locationManager.monitoredRegions
+        where region.identifier == parkedRegionIdentifier {
+            locationManager.stopMonitoring(for: region)
+        }
+        guard authorizationStatus == .authorizedAlways,
+              CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self),
+              let parked = AppSettings.lastParked else { return }
+        let region = CLCircularRegion(
+            center: CLLocationCoordinate2D(
+                latitude: parked.latitude, longitude: parked.longitude
+            ),
+            radius: 150,
+            identifier: parkedRegionIdentifier
+        )
+        region.notifyOnExit = true
+        region.notifyOnEntry = false
+        locationManager.startMonitoring(for: region)
+    }
+
+    private var stateName: String {
+        switch state {
+        case .off: return "off"
+        case .idle: return "idle"
+        case .evaluating: return "evaluating"
+        case .active: return "active"
+        }
     }
 
     private func beginEvaluation(reason: String) {
         guard state == .idle, AppSettings.autoTrackingEnabled else { return }
-        NSLog("Miles: evaluating possible drive (\(reason))")
+        DiagLog.shared.log("evaluating: \(reason)")
         state = .evaluating
         evaluationStartedAt = Date()
         evaluationSpeedHits = 0
@@ -211,7 +250,7 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.state == .evaluating else { return }
-                NSLog("Miles: evaluation timed out, returning to idle")
+                DiagLog.shared.log("evaluation timed out, back to idle")
                 self.enterIdle()
             }
         }
@@ -219,7 +258,7 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
 
     private func beginActiveTracking(seedLocation: CLLocation?) {
         guard state != .active else { return }
-        NSLog("Miles: drive started")
+        DiagLog.shared.log("drive started (\(evaluationBuffer.count) buffered points)")
         evaluationTimer?.invalidate()
         evaluationTimer = nil
         state = .active
@@ -380,6 +419,7 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
             // an async motion query here loses the race against re-suspension
             // and the drive gets missed entirely. A false alarm (a long walk)
             // just times out back to idle after 3 minutes.
+            DiagLog.shared.log("SLC wake while idle (\(locations.count) fixes)")
             beginEvaluation(reason: "significant location change")
             bufferEvaluationPoints(locations)
         case .evaluating:
@@ -512,7 +552,9 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
         let speedRule = noMovementFor >= speedEndInterval
 
         if walkingRule || motionRule || speedRule {
-            NSLog("Miles: ending drive (walking=\(walkingRule) motion=\(motionRule) speed=\(speedRule))")
+            DiagLog.shared.log(
+                "ending drive (walking=\(walkingRule) motion=\(motionRule) speed=\(speedRule))"
+            )
             finalizeActiveDrive(endedAt: drive.points.last?.timestamp ?? drive.lastMovementAt)
         }
     }
@@ -565,7 +607,9 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
 
         guard points.count >= 2, miles >= minimumDriveMiles,
               duration >= minimumDriveDuration else {
-            NSLog("Miles: discarding drive (\(points.count) pts, \(miles) mi, \(Int(duration)) s)")
+            DiagLog.shared.log(
+                "discarded drive: \(points.count) pts, \(String(format: "%.2f", miles)) mi, \(Int(duration)) s"
+            )
             return
         }
 
@@ -608,7 +652,9 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
         context.insert(record)
         do {
             try context.save()
-            NSLog("Miles: saved drive \(record.id) — \(record.distanceMiles) mi")
+            DiagLog.shared.log(
+                "saved drive: \(record.distanceMiles) mi, \(points.count) pts"
+            )
             NotificationService.notifyDriveTracked(
                 miles: record.distanceMiles,
                 endAddress: endAddress,
@@ -736,6 +782,8 @@ extension DriveTrackingEngine: CLLocationManagerDelegate {
 
     nonisolated func locationManager(_ manager: CLLocationManager, didVisit visit: CLVisit) {
         Task { @MainActor in
+            let departed = visit.departureDate != .distantFuture
+            DiagLog.shared.log("visit event (departed=\(departed)) state=\(self.stateName)")
             // A visit is a place the phone dwelled — i.e. where the car sits
             // parked. Track it as the anchor for the next drive's start.
             if self.state != .active {
@@ -744,18 +792,41 @@ extension DriveTrackingEngine: CLLocationManagerDelegate {
                     visit.coordinate.longitude,
                     Date()
                 )
+                if self.state == .idle {
+                    self.armParkedRegion()
+                }
             }
             // A departure visit (arrival recorded, departure now known) means
             // we just left somewhere — a classic drive start signal.
-            if visit.departureDate != .distantFuture, self.state == .idle {
+            if departed, self.state == .idle {
                 self.beginEvaluation(reason: "visit departure")
             }
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didExitRegion region: CLRegion) {
+        Task { @MainActor in
+            DiagLog.shared.log("geofence exit (\(region.identifier)) state=\(self.stateName)")
+            if self.state == .idle {
+                self.beginEvaluation(reason: "left parked area (geofence)")
+            }
+        }
+    }
+
+    nonisolated func locationManager(
+        _ manager: CLLocationManager,
+        monitoringDidFailFor region: CLRegion?,
+        withError error: Error
+    ) {
+        Task { @MainActor in
+            DiagLog.shared.log("geofence monitoring failed: \(error.localizedDescription)")
         }
     }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status = manager.authorizationStatus
         Task { @MainActor in
+            DiagLog.shared.log("authorization changed: \(status.rawValue)")
             self.authorizationStatus = status
             switch status {
             case .authorizedWhenInUse:
