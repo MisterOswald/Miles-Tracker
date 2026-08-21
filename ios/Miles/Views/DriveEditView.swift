@@ -197,8 +197,8 @@ struct DriveEditView: View {
         }
         .onAppear {
             // Bias suggestions toward where the drive happened (or where the
-            // phone is now) so "a street name" matches before identical street names
-            // in other states.
+            // phone is now) so a street name matches locally before identical
+            // street names in other states.
             let bias = endCoordinate
                 ?? startCoordinate
                 ?? CLLocationManager().location?.coordinate
