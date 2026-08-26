@@ -511,7 +511,11 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
             lat1: last.latitude, lng1: last.longitude,
             lat2: location.coordinate.latitude, lng2: location.coordinate.longitude
         )
-        let minSpacing = max(15.0, min(location.horizontalAccuracy, 30.0))
+        // While confidently moving, record densely (corners get cut when
+        // points sit ~30 m apart); the wander problem this gate exists for
+        // only occurs while stopped, so that's where the big bar lives.
+        let moving = location.speed >= stationarySpeedThreshold
+        let minSpacing = moving ? 12.0 : max(15.0, min(location.horizontalAccuracy, 30.0))
         if meters < minSpacing { return false }
 
         let stopped = location.speed >= 0 && location.speed < stationarySpeedThreshold
@@ -673,8 +677,8 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
     /// per drive; on failure (offline) the straight line stays.
     private static func mapMatchGaps(in points: [DrivePoint]) async -> [DrivePoint] {
         guard points.count >= 2 else { return points }
-        let gapThresholdMeters = 250.0
-        var budget = 3
+        let gapThresholdMeters = 120.0
+        var budget = 6
         var result: [DrivePoint] = [points[0]]
 
         for index in 1..<points.count {
