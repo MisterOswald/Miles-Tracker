@@ -3,6 +3,7 @@ import CoreMotion
 import Foundation
 import MapKit
 import SwiftData
+import UIKit
 
 /// The MileIQ-style drive detection state machine.
 ///
@@ -479,6 +480,39 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
 
     private func recordActivePoints(_ locations: [CLLocation]) {
         guard var drive = activeDrive else { return }
+        var didSplit = false
+
+        // Suspension hole: if iOS suspended us through a stop (parked at a
+        // destination), no timer or motion callback could end the drive.
+        // When fixes resume after a long silence, that silence WAS the stop:
+        // close the old drive at its last real point (dwell time excluded)
+        // and start a fresh drive for the new leg — instead of stapling the
+        // stop plus the next leg onto one monster drive.
+        if let lastPoint = drive.points.last,
+           let newest = locations.max(by: { $0.timestamp < $1.timestamp }),
+           newest.timestamp.timeIntervalSince(lastPoint.timestamp) > staleResumeInterval {
+            let gapMinutes = Int(newest.timestamp.timeIntervalSince(lastPoint.timestamp) / 60)
+            DiagLog.shared.log("fixes resumed after \(gapMinutes) min silence — splitting drive")
+
+            let finished = drive
+            AppSettings.lastParked = (lastPoint.latitude, lastPoint.longitude, Date())
+            Task { @MainActor in
+                await self.saveDrive(from: finished, endedAt: lastPoint.timestamp)
+                SyncEngine.shared.requestSync()
+            }
+
+            let now = Date()
+            drive = ActiveDriveState(
+                id: UUID(),
+                startedAt: newest.timestamp,
+                points: [],
+                lastMovementAt: now,
+                lastAutomotiveAt: now
+            )
+            currentDriveStartedAt = drive.startedAt
+            didSplit = true
+        }
+
         var appended = false
         for location in locations {
             if location.speed >= stationarySpeedThreshold {
@@ -488,6 +522,13 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
             drive.points.append(DrivePoint(location: location))
             appended = true
         }
+
+        if didSplit, let anchor = parkedAnchor(before: drive.points.first) {
+            drive.points.insert(anchor, at: 0)
+            drive.startedAt = anchor.timestamp
+            currentDriveStartedAt = anchor.timestamp
+        }
+
         activeDrive = drive
         if appended {
             currentDrivePointCount = drive.points.count
@@ -576,7 +617,18 @@ final class DriveTrackingEngine: NSObject, ObservableObject {
             AppSettings.lastParked = (lastPoint.latitude, lastPoint.longitude, Date())
         }
 
+        // Once updates stop, nothing keeps the app alive — hold a background
+        // task so the geocode / map-match / save can't be frozen mid-flight
+        // by suspension (which previously left the engine wedged in a
+        // half-finalized state).
+        let bgTask = UIApplication.shared.beginBackgroundTask(withName: "miles.finalize")
+
         Task { @MainActor in
+            defer {
+                if bgTask != .invalid {
+                    UIApplication.shared.endBackgroundTask(bgTask)
+                }
+            }
             await self.saveDrive(from: drive, endedAt: endedAt)
             self.activeDrive = nil
             self.store.clear()
